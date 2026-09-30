@@ -1,88 +1,67 @@
 ﻿from flask import Flask, request, jsonify, send_file
-import ollama
-import speech_recognition as sr
-import subprocess
+from groq import Groq
+import os
 
 app = Flask(__name__)
 
+# La API key se obtiene desde las variables de entorno de Render
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+
 @app.route("/")
 def inicio():
-    return send_file(r"C:\Jarvis\index.html")
+    return send_file("index.html")
 
-@app.route("/audio", methods=["POST"])
-def audio():
+
+@app.route("/chat", methods=["POST"])
+def chat():
     try:
-        archivo = request.files["audio"]
+        datos = request.get_json()
 
-        webm = r"C:\Jarvis\voz.webm"
-        wav = r"C:\Jarvis\voz.wav"
+        texto = datos.get("texto", "").strip()
 
-        archivo.save(webm)
+        if not texto:
+            return jsonify({
+                "respuesta": "No recibí ningún mensaje, señor."
+            })
 
-        subprocess.run([
-            r"C:\Users\Usuario\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg.Shared_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-9.0.2-full_build-shared\bin\ffmpeg.exe", "-y",
-            "-i", webm,
-            "-ar", "16000",
-            "-ac", "1",
-            wav
-        ], capture_output=True)
-
-        reconocedor = sr.Recognizer()
-
-        with sr.AudioFile(wav) as fuente:
-            audio = reconocedor.record(fuente)
-
-        texto = reconocedor.recognize_google(
-            audio,
-            language="es-AR"
-        )
-
-        print("[CELULAR]", texto)
-
-        respuesta = ollama.chat(
-            model="qwen3:1.7b",
+        respuesta = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
             messages=[
                 {
                     "role": "system",
-                    "content": "Eres JARVIS, un asistente en español argentino. Responde de forma natural, breve y útil."
+                    "content": (
+                        "Eres JARVIS, un asistente personal. "
+                        "Hablas español argentino de forma natural. "
+                        "Sé breve, claro y útil. "
+                        "Al final de tus respuestas llama al usuario 'señor'."
+                    )
                 },
                 {
                     "role": "user",
                     "content": texto
                 }
             ],
-            think=False,
-            options={"num_predict": 120}
+            temperature=0.7,
+            max_tokens=200
         )
 
-        resultado = respuesta["message"]["content"].strip()
-
-        print("[JARVIS]", resultado)
+        resultado = respuesta.choices[0].message.content.strip()
 
         return jsonify({
             "texto": texto,
             "respuesta": resultado
         })
 
-    except sr.UnknownValueError:
-        return jsonify({
-            "texto": "",
-            "respuesta": "No pude entender lo que dijiste."
-        })
-
     except Exception as e:
         print("[ERROR]", e)
+
         return jsonify({
-            "texto": "",
-            "respuesta": "Ocurrió un error al procesar el audio."
+            "respuesta": "Ocurrió un error al procesar la orden, señor."
         }), 500
 
-app.run(
-    host="0.0.0.0",
-    port=5000,
-    ssl_context=(
-        r"C:\Jarvis\10.93.205.118+2.pem",
-        r"C:\Jarvis\10.93.205.118+2-key.pem"
-    )
-)
 
+if __name__ == "__main__":
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000))
+    )
